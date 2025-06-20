@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request
-from app.controllers.metadata_controller import get_metadata_controller
+from app.controllers.metadata_controller import get_metadata_controller, get_stats_controller
 
 router = APIRouter()
 
@@ -13,4 +13,5 @@ async def receive_path(request: Request):
     print("stats")
     data = await request.json()
     print("Received path:", data)
-    return {"message": "Path received", "path": data} 
+    result = get_stats_controller(data)
+    return result 
