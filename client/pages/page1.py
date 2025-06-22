@@ -3,6 +3,10 @@ from util import get_metadata
 import requests
 import os
 from dotenv import load_dotenv
+import plotly.graph_objs as go
+import streamlit.components.v1 as components
+import sys
+import datetime
 
 st.set_page_config(
     page_title="Strategy Evaluation Engine",
@@ -65,8 +69,8 @@ def page1():
     }
     st.success(f"Selected: {person} / {country} / {strategy}")
 
-    # Button to send path to backend
-    if st.button("Send Path to Backend"):
+    # Button to send path to backend and plot PNL
+    if st.button("Send Path to Backend and Plot PNL"):
         payload = {
             "person": person,
             "country": country,
@@ -76,10 +80,59 @@ def page1():
             response = requests.post(f"{BASE_URL}/stats", json=payload)
             if response.status_code == 200:
                 st.success("Path sent to backend!")
+                data = response.json()
+                daywise_pnl = data.get("daywise_pnl", {})
+                st.session_state['daywise_pnl'] = daywise_pnl
             else:
                 st.error(f"Failed to send path: {response.text}")
         except Exception as e:
             st.error(f"Error sending path: {e}")
+
+    # Always show toggles and chart if daywise_pnl is present
+    daywise_pnl = st.session_state.get('daywise_pnl', {})
+    if daywise_pnl:
+        # --- Toggle Buttons for Time Ranges ---
+        time_options = {
+            "All": None,
+            "5Y": 5*365,
+            "1Y": 365,
+            "YTD": "ytd",
+            "6M": 182,
+            "1M": 30,
+            "5D": 5,
+            "1D": 1
+        }
+        selected_range = st.radio("Select Time Range", list(time_options.keys()), horizontal=True)
+        # --- Filter Data by Selected Range ---
+        today = datetime.date.today()
+        # Convert string dates to datetime.date
+        date_pnl_pairs = [(datetime.datetime.strptime(date, "%Y-%m-%d").date(), pnl) for date, pnl in daywise_pnl.items()]
+        date_pnl_pairs.sort()
+        if time_options[selected_range] is None:
+            filtered = date_pnl_pairs
+        elif selected_range == "YTD":
+            ytd_start = datetime.date(today.year, 1, 1)
+            filtered = [(d, pnl) for d, pnl in date_pnl_pairs if d >= ytd_start and d <= today]
+        else:
+            days = time_options[selected_range]
+            start_date = today - datetime.timedelta(days=days-1)
+            filtered = [(d, pnl) for d, pnl in date_pnl_pairs if d >= start_date and d <= today]
+        # Prepare for plotting
+        if filtered:
+            plot_dates = [d.strftime("%Y-%m-%d") for d, _ in filtered]
+            plot_pnls = [pnl for _, pnl in filtered]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=plot_dates, y=plot_pnls, mode='lines+markers', name='Daily PNL'))
+            fig.update_layout(title=f"Daily PNL Over Time ({selected_range})", xaxis_title="Date", yaxis_title="PNL")
+            # Responsive width using columns
+            if st.session_state.get('is_large_screen') is None:
+                st.session_state['is_large_screen'] = False
+            cols = st.columns([1,2,1]) if st.session_state['is_large_screen'] else st.columns([1,1])
+            with cols[1 if st.session_state['is_large_screen'] else 0]:
+                fig.update_layout(width=600 if st.session_state['is_large_screen'] else 400)
+                st.plotly_chart(fig)
+        else:
+            st.info("No PNL data available for the selected time range.")
 
 if __name__ == "__main__":
     page1() 
