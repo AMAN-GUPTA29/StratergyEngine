@@ -1,5 +1,5 @@
 import streamlit as st
-from util import get_metadata
+from util import get_metadata, filter_daywise_pnl_by_range, get_daywise_pnl
 import requests
 import os
 from dotenv import load_dotenv
@@ -71,22 +71,9 @@ def page1():
 
     # Button to send path to backend and plot PNL
     if st.button("Send Path to Backend and Plot PNL"):
-        payload = {
-            "person": person,
-            "country": country,
-            "strategy": strategy
-        }
-        try:
-            response = requests.post(f"{BASE_URL}/stats", json=payload)
-            if response.status_code == 200:
-                st.success("Path sent to backend!")
-                data = response.json()
-                daywise_pnl = data.get("daywise_pnl", {})
-                st.session_state['daywise_pnl'] = daywise_pnl
-            else:
-                st.error(f"Failed to send path: {response.text}")
-        except Exception as e:
-            st.error(f"Error sending path: {e}")
+        daywise_pnl = get_daywise_pnl(person, country, strategy)
+        if daywise_pnl is not None:
+            st.session_state['daywise_pnl'] = daywise_pnl
 
     # Always show toggles and chart if daywise_pnl is present
     daywise_pnl = st.session_state.get('daywise_pnl', {})
@@ -103,20 +90,8 @@ def page1():
             "1D": 1
         }
         selected_range = st.radio("Select Time Range", list(time_options.keys()), horizontal=True)
-        # --- Filter Data by Selected Range ---
-        today = datetime.date.today()
-        # Convert string dates to datetime.date
-        date_pnl_pairs = [(datetime.datetime.strptime(date, "%Y-%m-%d").date(), pnl) for date, pnl in daywise_pnl.items()]
-        date_pnl_pairs.sort()
-        if time_options[selected_range] is None:
-            filtered = date_pnl_pairs
-        elif selected_range == "YTD":
-            ytd_start = datetime.date(today.year, 1, 1)
-            filtered = [(d, pnl) for d, pnl in date_pnl_pairs if d >= ytd_start and d <= today]
-        else:
-            days = time_options[selected_range]
-            start_date = today - datetime.timedelta(days=days-1)
-            filtered = [(d, pnl) for d, pnl in date_pnl_pairs if d >= start_date and d <= today]
+        # --- Filter Data by Selected Range using util ---
+        filtered = filter_daywise_pnl_by_range(daywise_pnl, selected_range)
         # Prepare for plotting
         if filtered:
             plot_dates = [d.strftime("%Y-%m-%d") for d, _ in filtered]
